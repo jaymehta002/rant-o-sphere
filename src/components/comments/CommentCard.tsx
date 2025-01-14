@@ -1,24 +1,28 @@
 import { useState } from "react";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MessageSquare, ThumbsDown, ThumbsUp, Trash } from "lucide-react";
+import {
+  MessageSquare,
+  ThumbsDown,
+  ThumbsUp,
+  Trash,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useSessionContext } from "@supabase/auth-helpers-react";
-import { Post, Reaction } from "@/types";
-import { CreateComment } from "@/components/comments/CreateComment";
-import { CommentList } from "@/components/comments/CommentList";
+import { Comment } from "@/types";
+import { CreateComment } from "./CreateComment";
+import { CommentList } from "./CommentList";
 import { format } from "date-fns";
 
-interface PostCardProps {
-  post: Post;
-  onDelete?: () => void;
+interface CommentCardProps {
+  comment: Comment;
 }
 
-export const PostCard = ({ post, onDelete }: PostCardProps) => {
-  const [showComments, setShowComments] = useState(false);
-  const [reactions, setReactions] = useState<Reaction[]>([]);
+export const CommentCard = ({ comment }: CommentCardProps) => {
+  const [showReply, setShowReply] = useState(false);
+  const [showReplies, setShowReplies] = useState(false);
   const { toast } = useToast();
   const { session } = useSessionContext();
 
@@ -26,7 +30,7 @@ export const PostCard = ({ post, onDelete }: PostCardProps) => {
     if (!session) {
       toast({
         title: "Please sign in",
-        description: "You need to be signed in to react to posts",
+        description: "You need to be signed in to react to comments",
         variant: "destructive",
       });
       return;
@@ -35,7 +39,7 @@ export const PostCard = ({ post, onDelete }: PostCardProps) => {
     const { data: existingReaction } = await supabase
       .from("reactions")
       .select("*")
-      .eq("post_id", post.id)
+      .eq("comment_id", comment.id)
       .eq("user_id", session.user.id)
       .single();
 
@@ -69,7 +73,7 @@ export const PostCard = ({ post, onDelete }: PostCardProps) => {
       }
     } else {
       const { error } = await supabase.from("reactions").insert({
-        post_id: post.id,
+        comment_id: comment.id,
         user_id: session.user.id,
         type,
       });
@@ -85,54 +89,58 @@ export const PostCard = ({ post, onDelete }: PostCardProps) => {
   };
 
   const handleDelete = async () => {
-    if (!session || session.user.id !== post.user_id) return;
+    if (!session || session.user.id !== comment.user_id) return;
 
-    const { error } = await supabase.from("posts").delete().eq("id", post.id);
+    const { error } = await supabase
+      .from("comments")
+      .delete()
+      .eq("id", comment.id);
 
     if (error) {
       toast({
-        title: "Error deleting post",
+        title: "Error deleting comment",
         description: error.message,
         variant: "destructive",
       });
     } else {
       toast({
-        title: "Post deleted",
-        description: "Your post has been removed",
+        title: "Comment deleted",
+        description: "Your comment has been removed",
       });
-      onDelete?.();
     }
   };
 
   return (
-    <Card className="w-full mb-4 hover:shadow-lg transition-shadow">
-      <CardHeader className="flex flex-row items-start space-x-4 p-4">
-        <Avatar className="h-10 w-10">
-          <AvatarImage src={post.profiles?.avatar_url || undefined} />
-          <AvatarFallback>
-            {post.profiles?.username?.charAt(0).toUpperCase() || "U"}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Posted by {post.profiles?.username || "Anonymous"} •{" "}
-              {format(new Date(post.created_at), "PPp")}
-            </p>
-            {session?.user.id === post.user_id && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDelete}
-                className="text-destructive"
-              >
-                <Trash className="h-4 w-4" />
-              </Button>
-            )}
+    <Card className="w-full">
+      <CardContent className="p-4">
+        <div className="flex items-start space-x-4">
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={comment.profiles?.avatar_url || undefined} />
+            <AvatarFallback>
+              {comment.profiles?.username?.charAt(0).toUpperCase() || "U"}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {comment.profiles?.username || "Anonymous"} •{" "}
+                {format(new Date(comment.created_at), "PPp")}
+              </p>
+              {session?.user.id === comment.user_id && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDelete}
+                  className="text-destructive"
+                >
+                  <Trash className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            <p className="mt-2">{comment.content}</p>
           </div>
-          <p className="mt-2 text-lg">{post.content}</p>
         </div>
-      </CardHeader>
+      </CardContent>
       <CardFooter className="px-4 py-2 border-t">
         <div className="flex items-center space-x-4 w-full">
           <Button
@@ -142,7 +150,7 @@ export const PostCard = ({ post, onDelete }: PostCardProps) => {
             className="text-muted-foreground"
           >
             <ThumbsUp className="h-4 w-4 mr-2" />
-            {post.reactions_aggregate?.aggregate.count || 0}
+            {comment.reactions_aggregate?.aggregate.count || 0}
           </Button>
           <Button
             variant="ghost"
@@ -155,18 +163,34 @@ export const PostCard = ({ post, onDelete }: PostCardProps) => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setShowComments(!showComments)}
+            onClick={() => setShowReply(!showReply)}
             className="text-muted-foreground"
           >
             <MessageSquare className="h-4 w-4 mr-2" />
-            Comments
+            Reply
           </Button>
         </div>
       </CardFooter>
-      {showComments && (
+      {showReply && (
         <CardContent className="pt-4 border-t">
-          <CreateComment postId={post.id} />
-          <CommentList postId={post.id} />
+          <CreateComment
+            postId={comment.post_id!}
+            parentCommentId={comment.id}
+            onSuccess={() => setShowReply(false)}
+          />
+        </CardContent>
+      )}
+      {comment.parent_comment_id === null && (
+        <CardContent className="pt-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowReplies(!showReplies)}
+            className="text-muted-foreground"
+          >
+            {showReplies ? "Hide replies" : "Show replies"}
+          </Button>
+          {showReplies && <CommentList postId={comment.post_id!} parentCommentId={comment.id} />}
         </CardContent>
       )}
     </Card>

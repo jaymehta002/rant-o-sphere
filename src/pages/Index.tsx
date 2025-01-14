@@ -2,56 +2,71 @@ import { useEffect, useState } from "react";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { Navbar } from "@/components/layout/Navbar";
 import { PostCard } from "@/components/posts/PostCard";
+import { CreatePost } from "@/components/posts/CreatePost";
 import { supabase } from "@/integrations/supabase/client";
-import { User } from "@supabase/supabase-js";
-
-const SAMPLE_POSTS = [
-  {
-    content: "Why do people still use Comic Sans in professional emails? It's 2024!",
-    author: "FontEnthusiast",
-    timestamp: "2 hours ago",
-    votes: 42,
-    comments: 15,
-  },
-  {
-    content: "My neighbor's cat keeps judging me through the window. I can feel its disapproval.",
-    author: "CatParanoid",
-    timestamp: "4 hours ago",
-    votes: 128,
-    comments: 32,
-  },
-  {
-    content: "Just spent 3 hours debugging only to find a missing semicolon. I need a vacation.",
-    author: "TiredDev",
-    timestamp: "6 hours ago",
-    votes: 256,
-    comments: 45,
-  },
-];
+import { useSessionContext } from "@supabase/auth-helpers-react";
+import { Post } from "@/types";
 
 const Index = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const { session } = useSessionContext();
 
   useEffect(() => {
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    const fetchPosts = async () => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select(
+          `
+          *,
+          profiles:profiles (
+            id,
+            username,
+            avatar_url
+          ),
+          reactions_aggregate:reactions (
+            count
+          )
+        `
+        )
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setPosts(data as Post[]);
+      }
       setLoading(false);
-    });
+    };
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
+    fetchPosts();
 
-    return () => subscription.unsubscribe();
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel("posts-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "posts",
+        },
+        () => {
+          fetchPosts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-vent-primary">Loading...</div>
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <main className="container py-6">
+          <div className="animate-pulse text-vent-primary">Loading...</div>
+        </main>
       </div>
     );
   }
@@ -60,7 +75,7 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       <main className="container py-6">
-        {!user ? (
+        {!session ? (
           <div className="mt-12">
             <h1 className="text-4xl font-bold text-center mb-8 bg-gradient-to-r from-vent-primary to-vent-secondary bg-clip-text text-transparent">
               Share Your Frustrations
@@ -73,8 +88,13 @@ const Index = () => {
           </div>
         ) : (
           <div className="max-w-2xl mx-auto space-y-6">
-            {SAMPLE_POSTS.map((post, index) => (
-              <PostCard key={index} {...post} />
+            <CreatePost />
+            {posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                onDelete={() => setPosts(posts.filter((p) => p.id !== post.id))}
+              />
             ))}
           </div>
         )}
