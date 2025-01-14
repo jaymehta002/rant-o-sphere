@@ -1,6 +1,9 @@
+import { useEffect, useState } from "react";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { Navbar } from "@/components/layout/Navbar";
 import { PostCard } from "@/components/posts/PostCard";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 
 const SAMPLE_POSTS = [
   {
@@ -27,13 +30,37 @@ const SAMPLE_POSTS = [
 ];
 
 const Index = () => {
-  const isAuthenticated = false; // TODO: Implement with Supabase
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse text-vent-primary">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
       <main className="container py-6">
-        {!isAuthenticated ? (
+        {!user ? (
           <div className="mt-12">
             <h1 className="text-4xl font-bold text-center mb-8 bg-gradient-to-r from-vent-primary to-vent-secondary bg-clip-text text-transparent">
               Share Your Frustrations
